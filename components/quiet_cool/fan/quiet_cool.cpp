@@ -8,6 +8,10 @@ namespace esphome {
         static const char *TAG = "quiet_cool.fan";
 
         void QuietCoolFan::setup() {
+            ESP_LOGI(TAG, "=== QuietCoolFan::setup() called ===");
+            ESP_LOGI(TAG, "pins_set_ = %s", this->pins_set_ ? "true" : "false");
+            ESP_LOGI(TAG, "csn_pin_ = %d, gdo0_pin_ = %d, gdo2_pin_ = %d", this->csn_pin_, this->gdo0_pin_, this->gdo2_pin_);
+
             if (!this->pins_set_) {
                 ESP_LOGE(TAG, "QuietCool pins not configured via YAML; radio not initialised");
                 return;
