@@ -94,7 +94,7 @@ void QuietCool::sendPacket(const uint8_t cmd_code) {
 
 const uint8_t QuietCool::getCommand(QuietCoolSpeed speed, QuietCoolDuration duration) {
     ESP_LOGD(TAG, "getCommand got: speed=0x%02x, duration=0x%02x", speed, duration);
-    const uint8_t off = QUIETCOOL_DURATION_OFF | QUIETCOOL_SPEED_LOW;
+    const uint8_t off = static_cast<uint8_t>(QUIETCOOL_DURATION_OFF) | static_cast<uint8_t>(QUIETCOOL_SPEED_LOW);
     switch (speed) {
     case QUIETCOOL_SPEED_HIGH:
     case QUIETCOOL_SPEED_MEDIUM:
@@ -118,7 +118,7 @@ const uint8_t QuietCool::getCommand(QuietCoolSpeed speed, QuietCoolDuration dura
 	ESP_LOGD(TAG, "unknown duration: 0x%02x", duration);
 	return off;
     }
-    uint8_t result = speed | duration;
+    uint8_t result = static_cast<uint8_t>(speed) | static_cast<uint8_t>(duration);
     ESP_LOGD(TAG, "Sending speed=0x%02x, duration=0x%02x: 0x%02x", speed, duration, result);
     return result;
 }
@@ -207,9 +207,21 @@ void QuietCool::begin() {
 
 void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
     ESP_LOGI(TAG, "send(0x%02x, %0x%02x)", speed, duration);
+
+    // WAKE command - only needed for initial pairing
+    // Uncomment if you need to pair a new remote
+    // ESP_LOGI(TAG, "Sending WAKE command: 0x66");
+    // sendPacket(0x66);
+    // delay(1000);
+
     const uint8_t cmd_code = getCommand(speed, duration);
     ESP_LOGI(TAG, "cmd=%02x ", cmd_code);
     sendPacket(cmd_code);
+}
+
+void QuietCool::set_frequency(float freq_mhz) {
+    this->center_freq_mhz = freq_mhz;
+    ESP_LOGI(TAG, "Frequency updated to %.3f MHz", freq_mhz);
 }
 
 }  // namespace quiet_cool

@@ -63,6 +63,7 @@ class QuietCool {
     QuietCool(uint8_t csn, uint8_t gdo0, uint8_t gdo2, uint8_t sck, uint8_t miso, uint8_t mosi, const uint8_t* remote_id_in, float freq_mhz, float deviation_khz);
     void begin();
     void send(QuietCoolSpeed speed, QuietCoolDuration duration);
+    void set_frequency(float freq_mhz);  // Update center frequency
 };
 
 }  // namespace quiet_cool

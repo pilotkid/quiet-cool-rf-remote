@@ -19,7 +19,7 @@ namespace esphome {
             void dump_config() override;
             fan::FanTraits get_traits() override;
             void setup() override;  // initialise radio
-            float get_setup_priority() const override { return setup_priority::BUS; }
+            float get_setup_priority() const override { return setup_priority::DATA; }
             void set_pins(uint8_t csn, uint8_t gdo0, uint8_t gdo2) {
                 this->csn_pin_ = csn;
                 this->gdo0_pin_ = gdo0;
@@ -29,6 +29,9 @@ namespace esphome {
 	    void set_frequencies(float center_freq_mhz, float devation_khz) {
 		this->center_freq_mhz = center_freq_mhz;
 		this->deviation_khz = deviation_khz;
+	    }
+	    void set_speed_count(int speed_count) {
+		this->speed_count_ = speed_count;
 	    }
 
         protected:
@@ -44,11 +47,14 @@ namespace esphome {
 	    float deviation_khz{10};
             float speed_{0.0f};
             bool pins_set_{false};
+            int speed_count_{3};  // 2 or 3 speeds supported
             std::array<uint8_t, 7> remote_id_{{0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2}};
         public:
             void set_remote_id(const std::vector<uint8_t> &remote_id) {
                 for (size_t i = 0; i < 7 && i < remote_id.size(); ++i) remote_id_[i] = remote_id[i];
             }
+            void reinit_radio();  // Manually re-initialize CC1101 for debugging
+            void scan_frequencies();  // Scan through frequencies for pairing
         };
 
     }  // namespace quiet_cool
