@@ -77,41 +77,97 @@ namespace esphome {
         }
 
         void QuietCoolFan::control(const fan::FanCall &call) {
-            float inc_speed = call.get_speed().value_or(-1.0f);
-            ESP_LOGD(TAG, "Control called: state=%s, speed=%s", 
+            ESP_LOGD(TAG, "Control called: state=%s, speed=%s",
                      call.get_state().has_value() ? (*call.get_state() ? "ON" : "OFF") : "<unchanged>",
-                     call.get_speed().has_value() ? (std::to_string(inc_speed)).c_str() : "<unchanged>");
-            bool old_state = this->state;
-            if (call.get_state().has_value())
-                this->state = *call.get_state();
+                     call.get_speed().has_value() ? (std::to_string(*call.get_speed())).c_str() : "<unchanged>");
 
+            // Store old state for logging
+            bool old_state = this->state;
+            int old_speed = this->speed;
+
+            // Handle state changes
+            if (call.get_state().has_value()) {
+                bool new_state = *call.get_state();
+
+                if (new_state) {
+                    // Turning ON
+                    if (call.get_speed().has_value()) {
+                        // Speed explicitly specified, use it
+                        this->speed = *call.get_speed();
+                    } else if (this->speed == 0 || !old_state) {
+                        // No speed specified and either:
+                        // - Current speed is 0, or
+                        // - We were previously OFF
+                        // Default to speed 1 (LOW)
+                        this->speed = 1;
+                        ESP_LOGD(TAG, "No speed specified, defaulting to speed 1");
+                    }
+                    // else: keep existing speed from previous ON state
+                    this->state = true;
+                } else {
+                    // Turning OFF
+                    this->state = false;
+                    this->speed = 0;
+                }
+            } else if (call.get_speed().has_value()) {
+                // Only speed changed, not state
+                int new_speed = *call.get_speed();
+                this->speed = new_speed;
+
+                if (new_speed == 0) {
+                    // Speed 0 means turn OFF
+                    this->state = false;
+                } else {
+                    // Non-zero speed means turn ON
+                    this->state = true;
+                }
+            }
+
+            // Now map internal state to hardware commands
             QuietCoolSpeed qcspd = QUIETCOOL_SPEED_LOW;
             QuietCoolDuration qcdur = QUIETCOOL_DURATION_ON;
-            if (call.get_speed().has_value()) {
-                this->speed_ = *call.get_speed();
-                if (this->speed_ < 0.5) {
-                    qcdur = QUIETCOOL_DURATION_OFF;
-                } else if (this->speed_count_ == 2) {
+
+            int current_speed = this->speed;
+
+            if (!this->state || current_speed == 0) {
+                // Fan is OFF
+                qcdur = QUIETCOOL_DURATION_OFF;
+                qcspd = QUIETCOOL_SPEED_LOW;  // Doesn't matter, but be explicit
+            } else {
+                // Fan is ON, map speed to hardware
+                qcdur = QUIETCOOL_DURATION_ON;
+
+                if (this->speed_count_ == 2) {
                     // 2-speed mode: speed 1 = LOW, speed 2 = HIGH
-                    if (this->speed_ < 1.5) qcspd = QUIETCOOL_SPEED_LOW;
-                    else qcspd = QUIETCOOL_SPEED_HIGH;
+                    if (current_speed == 1) {
+                        qcspd = QUIETCOOL_SPEED_LOW;
+                    } else {
+                        qcspd = QUIETCOOL_SPEED_HIGH;
+                    }
                 } else {
                     // 3-speed mode: speed 1 = LOW, speed 2 = MEDIUM, speed 3 = HIGH
-                    if (this->speed_ < 1.5) qcspd = QUIETCOOL_SPEED_LOW;
-                    else if (this->speed_ < 2.5) qcspd = QUIETCOOL_SPEED_MEDIUM;
-                    else qcspd = QUIETCOOL_SPEED_HIGH;
+                    if (current_speed == 1) {
+                        qcspd = QUIETCOOL_SPEED_LOW;
+                    } else if (current_speed == 2) {
+                        qcspd = QUIETCOOL_SPEED_MEDIUM;
+                    } else {
+                        qcspd = QUIETCOOL_SPEED_HIGH;
+                    }
                 }
-            } else {
-		qcdur = QUIETCOOL_DURATION_OFF;
-	    }
-            if (this->qc_) this->qc_->send(qcspd, qcdur);
+            }
 
+            // Send command to hardware
+            if (this->qc_) {
+                ESP_LOGI(TAG, "Sending to hardware: speed=0x%02X, duration=0x%02X", qcspd, qcdur);
+                this->qc_->send(qcspd, qcdur);
+            }
 
-            ESP_LOGV(TAG, "Post-update internal state: state=%s speed=%s", 
-                     (this->state ? "ON" : "OFF"),
-                     (std::to_string(this->speed_)).c_str());
+            ESP_LOGI(TAG, "State updated: state=%s, speed=%d (was: state=%s, speed=%d)",
+                     this->state ? "ON" : "OFF", current_speed,
+                     old_state ? "ON" : "OFF", old_speed);
 
-            this->write_state_();
+            // Publish state to Home Assistant
+            // This will update both the on/off state and the percentage
             this->publish_state();
         }
 

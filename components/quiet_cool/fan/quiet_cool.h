@@ -45,7 +45,7 @@ namespace esphome {
             uint8_t gdo2_pin_{};
 	    float center_freq_mhz{433.897};
 	    float deviation_khz{10};
-            float speed_{0.0f};
+            // Note: speed is inherited from fan::Fan base class (optional<int> speed)
             bool pins_set_{false};
             int speed_count_{3};  // 2 or 3 speeds supported
             std::array<uint8_t, 7> remote_id_{{0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2}};

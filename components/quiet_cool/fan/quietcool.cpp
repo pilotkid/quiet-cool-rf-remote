@@ -202,21 +202,83 @@ void QuietCool::begin() {
         ESP_LOGE(TAG, "CC1101 not detected");
         return;
     }
-    ESP_LOGI(TAG, "CC1101 ready");
+    ESP_LOGI(TAG, "CC1101 initialized");
+
+    // Ensure we're in IDLE after init
+    ELECHOUSE_cc1101.SpiStrobe(0x36);  // SIDLE
+    delay(2);
+
+    // Calibrate frequency synthesizer for stability
+    ESP_LOGI(TAG, "Calibrating frequency synthesizer");
+    ELECHOUSE_cc1101.SpiStrobe(0x33);  // SCAL
+    delay(10);  // Calibration takes up to 712μs
+
+    // Flush both FIFOs to start clean
+    ELECHOUSE_cc1101.SpiStrobe(0x3A);  // SFRX
+    ELECHOUSE_cc1101.SpiStrobe(0x3B);  // SFTX
+    delay(2);
+
+    // Enter RX mode
+    ESP_LOGI(TAG, "Entering RX mode");
+    ELECHOUSE_cc1101.SetRx();
+    delay(10);
+
+    // Verify RX mode
+    byte marcstate = ELECHOUSE_cc1101.SpiReadStatus(0xF5);
+    ESP_LOGI(TAG, "Initial MARCSTATE = 0x%02X (0x0D = RX expected)", marcstate);
+
+    if (marcstate == 0x0D) {
+        ESP_LOGI(TAG, "CC1101 ready and listening");
+    } else {
+        ESP_LOGW(TAG, "CC1101 not in RX mode! State: 0x%02X", marcstate);
+    }
 }
 
 void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
     ESP_LOGI(TAG, "send(0x%02x, %0x%02x)", speed, duration);
 
-    // WAKE command - only needed for initial pairing
-    // Uncomment if you need to pair a new remote
-    // ESP_LOGI(TAG, "Sending WAKE command: 0x66");
-    // sendPacket(0x66);
-    // delay(1000);
-
     const uint8_t cmd_code = getCommand(speed, duration);
-    ESP_LOGI(TAG, "cmd=%02x ", cmd_code);
+    ESP_LOGI(TAG, "Preparing to send cmd=0x%02x", cmd_code);
+
+    // Proper sequence: Current state → SIDLE → TX → SIDLE → RX
+    // Going to IDLE stops any RX activity, so we don't need to disable interrupts
+    ESP_LOGD(TAG, "Entering IDLE mode");
+    ELECHOUSE_cc1101.SpiStrobe(0x36);  // SIDLE
+    delay(2);  // Allow state transition
+
+    // Flush TX FIFO while in IDLE
+    ESP_LOGD(TAG, "Flushing TX FIFO");
+    ELECHOUSE_cc1101.SpiStrobe(0x3B);  // SFTX
+    delay(2);
+
+    // Send packet (internally uses STX)
     sendPacket(cmd_code);
+
+    // Wait for TX to complete
+    delay(50);
+
+    // Return to IDLE
+    ESP_LOGD(TAG, "Returning to IDLE after TX");
+    ELECHOUSE_cc1101.SpiStrobe(0x36);  // SIDLE
+    delay(2);
+
+    // Flush RX FIFO before entering RX mode
+    ESP_LOGD(TAG, "Flushing RX FIFO");
+    ELECHOUSE_cc1101.SpiStrobe(0x3A);  // SFRX
+    delay(2);
+
+    // Enter RX mode
+    ESP_LOGI(TAG, "Entering RX mode");
+    ELECHOUSE_cc1101.SetRx();  // SRX
+    delay(10);
+
+    // Verify we're in RX mode
+    byte marcstate = ELECHOUSE_cc1101.SpiReadStatus(0xF5);
+    ESP_LOGI(TAG, "TX complete, MARCSTATE = 0x%02X (0x0D = RX expected)", marcstate);
+
+    if (marcstate != 0x0D && marcstate != 0x1F) {
+        ESP_LOGW(TAG, "Warning: Not in expected RX state after transmission!");
+    }
 }
 
 void QuietCool::set_frequency(float freq_mhz) {
