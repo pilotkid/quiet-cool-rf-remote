@@ -19,6 +19,7 @@ namespace esphome {
             void dump_config() override;
             fan::FanTraits get_traits() override;
             void setup() override;  // initialise radio
+            void loop() override;   // check for incoming remote commands and monitor state
             float get_setup_priority() const override { return setup_priority::DATA; }
             void set_pins(uint8_t csn, uint8_t gdo0, uint8_t gdo2) {
                 this->csn_pin_ = csn;
@@ -49,12 +50,16 @@ namespace esphome {
             bool pins_set_{false};
             int speed_count_{3};  // 2 or 3 speeds supported
             std::array<uint8_t, 7> remote_id_{{0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2}};
+            uint32_t rx_packet_count_{0};
+            uint32_t overflow_count_{0};
+            uint32_t gdo0_blocked_count_{0};
         public:
             void set_remote_id(const std::vector<uint8_t> &remote_id) {
                 for (size_t i = 0; i < 7 && i < remote_id.size(); ++i) remote_id_[i] = remote_id[i];
             }
             void reinit_radio();  // Manually re-initialize CC1101 for debugging
             void scan_frequencies();  // Scan through frequencies for pairing
+            void send_wake();  // Send WAKE (0x66) to query fan state
         };
 
     }  // namespace quiet_cool

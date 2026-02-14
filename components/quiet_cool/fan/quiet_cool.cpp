@@ -1,6 +1,9 @@
 #include "quiet_cool.h"
 #include "esphome/core/log.h"
 #include "quietcool.h"
+#include <cstring>  // for memmove, memcpy
+#include <Arduino.h>  // for digitalRead
+#include "ELECHOUSE_CC1101_SRC_DRV.h"  // for register readback
 
 namespace esphome {
     namespace quiet_cool {
@@ -8,9 +11,8 @@ namespace esphome {
         static const char *TAG = "quiet_cool.fan";
 
         void QuietCoolFan::setup() {
-            ESP_LOGI(TAG, "=== QuietCoolFan::setup() called ===");
-            ESP_LOGI(TAG, "pins_set_ = %s", this->pins_set_ ? "true" : "false");
-            ESP_LOGI(TAG, "csn_pin_ = %d, gdo0_pin_ = %d, gdo2_pin_ = %d", this->csn_pin_, this->gdo0_pin_, this->gdo2_pin_);
+            ESP_LOGD(TAG, "setup: pins_set=%s csn=%d gdo0=%d gdo2=%d",
+                     this->pins_set_ ? "true" : "false", this->csn_pin_, this->gdo0_pin_, this->gdo2_pin_);
 
             if (!this->pins_set_) {
                 ESP_LOGE(TAG, "QuietCool pins not configured via YAML; radio not initialised");
@@ -18,25 +20,17 @@ namespace esphome {
             }
 
             if (this->qc_ == nullptr) {
-                ESP_LOGI(TAG, "Creating QuietCool object...");
                 this->qc_.reset(new QuietCool(this->csn_pin_, this->gdo0_pin_, this->gdo2_pin_, 18, 19, 23, remote_id_.data(), center_freq_mhz, deviation_khz));
-                ESP_LOGI(TAG, "QuietCool object created");
             }
 
-            ESP_LOGI(TAG, "Calling qc_->begin()...");
             this->qc_->begin();
-            ESP_LOGI(TAG, "qc_->begin() completed");
-            ESP_LOGD(TAG, "QuietCool initialized");
+            ESP_LOGI(TAG, "QuietCool initialized");
         }
 
         void QuietCoolFan::reinit_radio() {
-            ESP_LOGI(TAG, "=== MANUAL RE-INITIALIZATION TRIGGERED ===");
             if (this->qc_) {
-                ESP_LOGI(TAG, "Calling qc_->begin() again...");
+                ESP_LOGI(TAG, "Re-initializing radio");
                 this->qc_->begin();
-                ESP_LOGI(TAG, "Re-initialization complete");
-            } else {
-                ESP_LOGE(TAG, "Cannot reinit - qc_ is null!");
             }
         }
 
@@ -74,6 +68,164 @@ namespace esphome {
 
         fan::FanTraits QuietCoolFan::get_traits() {
             return fan::FanTraits(false, true, false, this->speed_count_);
+        }
+
+        void QuietCoolFan::loop() {
+            uint32_t now = millis();
+
+            if (!this->qc_) {
+                return;
+            }
+
+            // Periodic calibration for long-term stability (every 5 minutes)
+            static uint32_t last_cal = 0;
+            if (now - last_cal > 300000) {
+                this->qc_->calibrate();
+                last_cal = now;
+            }
+
+            // Periodic MARCSTATE monitoring (every 10 seconds) — safety net
+            static uint32_t last_log = 0;
+            static bool regs_logged = false;
+            if (now - last_log > 10000) {
+                uint8_t marcstate = this->qc_->getMarcState();
+                ESP_LOGD(TAG, "CC1101 MARCSTATE: 0x%02X (0x0D = RX)", marcstate);
+                ESP_LOGD(TAG, "RX stats: pkts=%lu, overflows=%lu, gdo0_blocked=%lu",
+                         rx_packet_count_, overflow_count_, gdo0_blocked_count_);
+
+                // One-time register readback (setup logs lost before API connects)
+                if (!regs_logged) {
+                    regs_logged = true;
+                    uint8_t mdmcfg2 = ELECHOUSE_cc1101.SpiReadReg(0x12);
+                    uint8_t pktctrl1 = ELECHOUSE_cc1101.SpiReadReg(0x07);
+                    uint8_t foccfg = ELECHOUSE_cc1101.SpiReadReg(0x19);
+                    uint8_t bscfg = ELECHOUSE_cc1101.SpiReadReg(0x1A);
+                    ESP_LOGI(TAG, "Regs: MDMCFG2=0x%02X(SYNC_MODE=%d) PKTCTRL1=0x%02X(PQT=%d) FOCCFG=0x%02X BSCFG=0x%02X",
+                             mdmcfg2, mdmcfg2 & 0x07, pktctrl1, (pktctrl1 >> 5) & 0x07, foccfg, bscfg);
+                }
+
+                if (marcstate == 0x11 || marcstate == 0x16) {
+                    ESP_LOGW(TAG, "CC1101 FIFO error (state 0x%02X) - recovering", marcstate);
+                    this->qc_->recoverFromFifoError();
+                } else if (marcstate != 0x0D && marcstate != 0x1F) {
+                    ESP_LOGW(TAG, "CC1101 not in RX (state 0x%02X) - forcing RX", marcstate);
+                    this->qc_->forceRxMode();
+                }
+
+                last_log = now;
+            }
+
+            // Periodic WAKE poll (every 30s) — query fan state
+            static uint32_t last_wake = 0;
+            if (now - last_wake > 30000) {
+                ESP_LOGD(TAG, "Periodic WAKE poll");
+                this->qc_->sendWake();
+                last_wake = millis();  // Use millis() after sendWake() completes (~500ms)
+            }
+
+            // --- Drain all complete packets from FIFO ---
+            // Dual-condition read: satisfies TI FIFO errata (SWRZ020) while allowing
+            // aggressive draining during burst reception (3 packets in ~250ms).
+            uint8_t packets_this_loop = 0;
+            while (true) {
+                // Double-read RXBYTES per TI recommendation (use lower value)
+                uint8_t rb1 = this->qc_->getRxBytes();
+                uint8_t rb2 = this->qc_->getRxBytes();
+                uint8_t rxbytes_raw = (rb1 < rb2) ? rb1 : rb2;
+                bool overflow = rxbytes_raw & 0x80;
+                uint8_t rxbytes = rxbytes_raw & 0x7F;
+
+                if (overflow) {
+                    ESP_LOGW(TAG, "RX FIFO overflow - recovering");
+                    this->qc_->recoverFromFifoError();
+                    overflow_count_++;
+                    break;
+                }
+
+                // Dual-condition: safe to read when either:
+                // (a) 2+ packets buffered — reading 22 leaves ≥22, so SPI read pointer
+                //     never catches radio write pointer (satisfies TI errata workaround)
+                // (b) 1 packet complete and no active reception (GDO0 LOW)
+                bool can_read = (rxbytes >= 44) ||
+                                (rxbytes >= 22 && digitalRead(this->gdo0_pin_) == LOW);
+
+                if (!can_read) {
+                    if (rxbytes >= 22) gdo0_blocked_count_++;  // Diagnostic
+                    break;
+                }
+
+                uint8_t buffer[22];
+                this->qc_->readRxBurst(buffer, 22);
+                this->qc_->processPacket(buffer, 20, now);
+
+                // RSSI/LQI from APPEND_STATUS bytes
+                int8_t rssi_raw = (int8_t)buffer[20];
+                int rssi_dbm = (rssi_raw >= 128) ? (rssi_raw - 256) / 2 - 74 : rssi_raw / 2 - 74;
+                uint8_t lqi = buffer[21] & 0x7F;
+
+                // Log with source indicator
+                const char* source = (rssi_dbm > -70) ? "FAN" : "REMOTE";
+                ESP_LOGI(TAG, "RX [%s] RSSI=%d LQI=%d", source, rssi_dbm, lqi);
+
+                // Consume decoded command and sync HA state
+                auto rx_cmd = this->qc_->consumeRxCommand();
+                if (rx_cmd.valid && !rx_cmd.is_wake) {
+                    // Deduplication: ignore same command within 1 second
+                    static uint8_t last_rx_speed = 0;
+                    static uint8_t last_rx_duration = 0;
+                    static bool last_rx_was_off = false;
+                    static uint32_t last_rx_time = 0;
+
+                    bool is_duplicate = (now - last_rx_time < 1000) &&
+                                        (rx_cmd.is_off == last_rx_was_off) &&
+                                        (rx_cmd.speed == last_rx_speed) &&
+                                        (rx_cmd.duration == last_rx_duration);
+
+                    last_rx_speed = rx_cmd.speed;
+                    last_rx_duration = rx_cmd.duration;
+                    last_rx_was_off = rx_cmd.is_off;
+                    last_rx_time = now;
+
+                    if (!is_duplicate) {
+                        if (rx_cmd.is_off) {
+                            this->state = false;
+                            this->speed = 0;
+                            ESP_LOGI(TAG, "RX sync: OFF");
+                        } else {
+                            this->state = true;
+                            if (this->speed_count_ == 2) {
+                                if (rx_cmd.speed == 0x90) this->speed = 1;
+                                else this->speed = 2;
+                            } else {
+                                if (rx_cmd.speed == 0x90) this->speed = 1;
+                                else if (rx_cmd.speed == 0xA0) this->speed = 2;
+                                else this->speed = 3;
+                            }
+                            ESP_LOGI(TAG, "RX sync: ON speed=%d", this->speed);
+                        }
+                        this->publish_state();
+                    }
+                }
+
+                packets_this_loop++;
+                rx_packet_count_++;
+                if (packets_this_loop >= 5) break;  // Safety limit per loop iteration
+            }
+
+            // FIFO alignment recovery: residual bytes indicate misalignment
+            if (packets_this_loop > 0) {
+                uint8_t residual = this->qc_->getRxBytes() & 0x7F;
+                if (residual > 0 && residual < 22) {
+                    ESP_LOGW(TAG, "FIFO misaligned (%d residual bytes) - flushing", residual);
+                    this->qc_->recoverFromFifoError();
+                }
+            }
+        }
+
+        void QuietCoolFan::send_wake() {
+            if (this->qc_) {
+                this->qc_->sendWake();
+            }
         }
 
         void QuietCoolFan::control(const fan::FanCall &call) {
@@ -160,6 +312,7 @@ namespace esphome {
             if (this->qc_) {
                 ESP_LOGI(TAG, "Sending to hardware: speed=0x%02X, duration=0x%02X", qcspd, qcdur);
                 this->qc_->send(qcspd, qcdur);
+                ESP_LOGI(TAG, "TX complete");
             }
 
             ESP_LOGI(TAG, "State updated: state=%s, speed=%d (was: state=%s, speed=%d)",
