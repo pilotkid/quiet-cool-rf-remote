@@ -4,6 +4,7 @@
 #include "esphome/core/component.h"
 #include "esphome/components/spi/spi.h"
 #include "quietcool.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 #include <memory>
 
 namespace esphome
@@ -38,6 +39,11 @@ namespace esphome
                 this->speed_count_ = speed_count;
             }
 
+            void set_rx_packet_text_sensor(text_sensor::TextSensor *sensor)
+            {
+                this->rx_packet_text_sensor_ = sensor;
+            }
+
         protected:
             void control(const fan::FanCall &call) override;
             void write_state_();
@@ -57,6 +63,7 @@ namespace esphome
             uint32_t rx_packet_count_{0};
             uint32_t overflow_count_{0};
             uint32_t gdo0_blocked_count_{0};
+            text_sensor::TextSensor *rx_packet_text_sensor_{nullptr};
 
         public:
             void set_remote_id(const std::vector<uint8_t> &remote_id)

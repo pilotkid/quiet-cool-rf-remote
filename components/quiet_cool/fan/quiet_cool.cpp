@@ -1,6 +1,7 @@
 #include "quiet_cool.h"
 #include "esphome/core/log.h"
 #include "quietcool.h"
+#include <string>
 #include <cstring>                    // for memmove, memcpy
 #include <Arduino.h>                  // for digitalRead
 #include "ELECHOUSE_CC1101_SRC_DRV.h" // for register readback
@@ -180,6 +181,39 @@ namespace esphome
 
                 uint8_t buffer[22];
                 this->qc_->readRxBurst(buffer, 22);
+
+                // Publish RX packet to optional text sensor as three columns: ID  CMD  DATA
+                if (this->rx_packet_text_sensor_ != nullptr)
+                {
+                    // Column 1: 7-byte ID as contiguous hex (no spaces)
+                    char id_cont[7 * 2 + 1];
+                    id_cont[0] = '\0';
+                    for (int i = 0; i < 7; ++i)
+                    {
+                        snprintf(id_cont + i * 2, 3, "%02X", buffer[7 + i]);
+                    }
+
+                    // Column 2: command bytes (14,15)
+                    uint8_t cmd1 = (20 >= 15) ? buffer[14] : 0;
+                    uint8_t cmd2 = (20 >= 16) ? buffer[15] : 0;
+                    char cmd_col[12];
+                    snprintf(cmd_col, sizeof(cmd_col), "0x%02X,0x%02X", cmd1, cmd2);
+
+                    // Column 3: data bytes (16-19) as contiguous hex
+                    char data_col[4 * 2 + 1];
+                    data_col[0] = '\0';
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        int idx = 16 + i;
+                        uint8_t v = (idx < 20) ? buffer[idx] : 0;
+                        snprintf(data_col + i * 2, 3, "%02X", v);
+                    }
+
+                    char out[64];
+                    snprintf(out, sizeof(out), "%s  %s  %s", id_cont, cmd_col, data_col);
+                    this->rx_packet_text_sensor_->publish_state(std::string(out));
+                }
+
                 this->qc_->processPacket(buffer, 20, now);
 
                 // RSSI/LQI from APPEND_STATUS bytes

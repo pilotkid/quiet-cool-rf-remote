@@ -131,6 +131,8 @@ fan:
     gdo0_pin: 13
     gdo2_pin: 12
     remote_id: [0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2]
+    rx_packet_sensor:
+      name: "QuietCool RX Packet"
     # Optional:
     # center_freq_mhz: 433.897
     # deviation_khz: 10
