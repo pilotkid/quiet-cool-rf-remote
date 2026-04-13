@@ -182,7 +182,12 @@ namespace esphome
                 this->qc_->readRxBurst(buffer, 22);
                 this->qc_->processPacket(buffer, 20, now);
 
-                // Publish raw packet to text sensor (id | cmd | data)
+                // RSSI/LQI from APPEND_STATUS bytes
+                int8_t rssi_raw = (int8_t)buffer[20];
+                int rssi_dbm = (rssi_raw >= 128) ? (rssi_raw - 256) / 2 - 74 : rssi_raw / 2 - 74;
+                uint8_t lqi = buffer[21] & 0x7F;
+
+                // Publish raw packet to text sensor (id | cmd | data | rssi | lqi)
                 if (this->rx_packet_sensor_ != nullptr)
                 {
                     char id_hex[7 * 3 + 1];
@@ -193,17 +198,12 @@ namespace esphome
                     for (int i = 0; i < 20; i++)
                         snprintf(data_hex + i * 3, 4, "%02X ", buffer[i]);
                     data_hex[20 * 3 - 1] = '\0'; // trim trailing space
-                    char json[192];
+                    char json[224];
                     snprintf(json, sizeof(json),
-                             "{\"id\":\"%s\",\"cmd\":\"0x%02X,0x%02X\",\"data\":\"%s\"}",
-                             id_hex, buffer[14], buffer[15], data_hex);
+                             "{\"id\":\"%s\",\"cmd\":\"0x%02X,0x%02X\",\"data\":\"%s\",\"rssi\":%d,\"lqi\":%u}",
+                             id_hex, buffer[14], buffer[15], data_hex, rssi_dbm, lqi);
                     this->rx_packet_sensor_->publish_state(json);
                 }
-
-                // RSSI/LQI from APPEND_STATUS bytes
-                int8_t rssi_raw = (int8_t)buffer[20];
-                int rssi_dbm = (rssi_raw >= 128) ? (rssi_raw - 256) / 2 - 74 : rssi_raw / 2 - 74;
-                uint8_t lqi = buffer[21] & 0x7F;
 
                 // Log with source indicator
                 const char *source = (rssi_dbm > -70) ? "FAN" : "REMOTE";
