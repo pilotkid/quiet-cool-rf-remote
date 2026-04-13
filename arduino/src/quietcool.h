@@ -16,9 +16,10 @@
   8      3   GDO2
 */
 
-#define FREQ_MHZ  433.897
+#define FREQ_MHZ 433.897
 
-typedef enum {
+typedef enum
+{
     QUIETCOOL_SPEED_HIGH,
     QUIETCOOL_SPEED_MEDIUM,
     QUIETCOOL_SPEED_LOW,
@@ -26,7 +27,8 @@ typedef enum {
     QUIETCOOL_SPEED_LAST
 } QuietCoolSpeed;
 
-typedef enum {
+typedef enum
+{
     QUIETCOOL_DURATION_1H,
     QUIETCOOL_DURATION_2H,
     QUIETCOOL_DURATION_4H,
@@ -36,9 +38,10 @@ typedef enum {
     QUIETCOOL_DURATION_LAST
 } QuietCoolDuration;
 
-class QuietCool {
+class QuietCool
+{
 private:
-    static const char* speed_settings[];
+    static const char *speed_settings[];
     static constexpr uint8_t TO_BIT(char c) { return (c == '1') ? 1 : 0; }
 
     uint8_t csn_pin;
@@ -50,10 +53,10 @@ private:
 
     bool initCC1101();
     byte readChipVersion();
-    void sendRawData(const char* data, byte len);
-    void sendBits(const char* data, byte len);
-    void sendPacket(const char* data, byte len);
-    const char* getCommand(QuietCoolSpeed speed, QuietCoolDuration duration);
+    void sendRawData(const char *data, byte len);
+    void sendBits(const char *data, byte len);
+    void sendPacket(const char *data, byte len);
+    const char *getCommand(QuietCoolSpeed speed, QuietCoolDuration duration);
 
 public:
     QuietCool(uint8_t csn, uint8_t gdo0, uint8_t gdo2, uint8_t sck, uint8_t miso, uint8_t mosi);
