@@ -134,6 +134,7 @@ fan:
     # Optional:
     # center_freq_mhz: 433.897
     # deviation_khz: 10
+    # speed_count: 3
 ```
 
 ---
@@ -150,6 +151,7 @@ fan:
 | `remote_id`       | Yes      | list[hex]    |           | 7-byte unique ID for your remote (see above).                               |
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
+| `speed_count`     | No       | int          | 3          | Number of fan speeds: 2 (LOW/HIGH) or 3 (LOW/MEDIUM/HIGH).                 |
 
 **Note:** You must also define the SPI bus pins in your YAML:
 
@@ -162,17 +164,22 @@ spi:
 
 ## Recent Improvements
 
-### Transmission System Overhaul
-- **Consolidated bit conversion logic**: Unified logging and transmission to ensure consistency
-- **Improved reliability**: Fixed potential timing and synchronization issues
-- **Better debugging**: Enhanced logging with bit-level visibility
-- **Configurable remote ID**: Support for custom remote identifiers via YAML configuration
+### Bidirectional State Sync
+The component now supports **bidirectional communication** — it receives commands from the physical remote and fan, keeping Home Assistant state in sync:
+- **RX path**: Receives and decodes commands from the physical remote and fan echoes using CC1101 hardware sync word detection and fixed-length packet mode
+- **WAKE polling**: Periodically sends WAKE (0x66) queries to the fan every 30 seconds; the fan responds with its current state (ON at speed, or OFF)
+- **PREP/CMD decoding**: Fan responses with duration=0x0F (CMD) indicate ON; duration=0x00 (PREP) indicates OFF
+- **Deduplication**: Same command within 1 second is ignored to prevent state flicker from burst transmissions
 
-### Technical Changes
-- Replaced string-based command system with byte arrays for better performance
-- Consolidated `logBits` and `sendBitsFromBytes` functions to use shared logic
-- Added configurable `remote_id` parameter throughout the stack
-- Improved error handling and validation
+### Transmission Fixes
+- **Fixed TX packet format**: Bypassed ELECHOUSE `SendData()` which prepended a length byte, corrupting fixed-length mode packets
+- **Fixed TX sync alignment**: CC1101 hardware prepends its own sync word (0x15AA) in TX mode; removed the duplicate embedded sync from FIFO data
+- **Fixed OFF command**: Now sends 0x80 (correct OFF) instead of 0x90 (LOW|OFF)
+- **TX power**: Increased from 0 dBm to 10 dBm for reliable communication with the fan
+
+### Configuration
+- **Configurable speed count**: Support for 2-speed or 3-speed fan models via `speed_count` option
+- **Configurable remote ID**: Support for custom remote identifiers via YAML configuration
 
 # Run it on arduino
 The arduino code doesn't do much by itself.  But it gets you going:
@@ -232,6 +239,7 @@ The source is here [in OnShape](https://cad.onshape.com/documents/23ba2be84b2f4d
     - off
     - on
 - **Configurable remote ID** for compatibility with different remotes
+- **Bidirectional state sync** — physical remote commands and WAKE polling keep Home Assistant in sync with the fan
 
 # Reverse Engineering
 I used an RTL-SDR.COM SDR like this:
@@ -251,13 +259,14 @@ And for software, I used Universal Radio Haacker.  Here's a recording of all the
 This remote uses FSK modulation at 433.92MHz.  The CC1101 RF module ended up transmitting high, so I reduced the frequency in the code to 433.897 to make it work.  If things don't work, check the actual frequency.
 
 
-## Configuration
+## CC1101 Configuration
 
-The system operates at 433.897 MHz and uses FSK modulation. The CC1101 module is configured for:
-- Direct mode transmission
-- No packet handling
-- Raw data mode
-- No CRC or preamble
+The system operates at 433.897 MHz and uses 2-FSK modulation. The CC1101 module is configured for:
+- Fixed-length packet mode (20 bytes)
+- Hardware sync word detection (0x15AA)
+- Hardware preamble insertion (TX) and sync stripping (RX)
+- APPEND_STATUS enabled (RSSI + LQI appended to RX packets)
+- 10 dBm TX power
 
 ## Building and Uploading
 

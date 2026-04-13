@@ -29,7 +29,7 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Required(CONF_REMOTE_ID                     ): cv.ensure_list(cv.hex_uint8_t),
         cv.Optional(CONF_FREQ_MHZ     , default=433.897): cv.float_,
         cv.Optional(CONF_DEVIATION_KHZ, default=10.0   ): cv.float_,
-        cv.Optional(CONF_SPEED_COUNT  , default=3      ): cv.int_range(min=1, max=3)
+        cv.Optional(CONF_SPEED_COUNT  , default=3      ): cv.int_range(min=2, max=3)
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(spi.spi_device_schema(cs_pin_required=True))
 
