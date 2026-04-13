@@ -29,7 +29,7 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Required(CONF_GDO0_PIN                      ): cv.uint8_t,
         cv.Required(CONF_GDO2_PIN                      ): cv.uint8_t,
         cv.Required(CONF_REMOTE_ID                     ): cv.ensure_list(cv.hex_uint8_t),
-        cv.Optional(CONF_RX_PACKET_SENSOR               ): text_sensor.TEXT_SENSOR_SCHEMA,
+        cv.Optional(CONF_RX_PACKET_SENSOR               ): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_FREQ_MHZ     , default=433.897): cv.float_,
         cv.Optional(CONF_DEVIATION_KHZ, default=10.0   ): cv.float_,
         cv.Optional(CONF_SPEED_COUNT  , default=3      ): cv.int_range(min=2, max=3)
