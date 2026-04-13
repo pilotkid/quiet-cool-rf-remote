@@ -182,6 +182,24 @@ namespace esphome
                 this->qc_->readRxBurst(buffer, 22);
                 this->qc_->processPacket(buffer, 20, now);
 
+                // Publish raw packet to text sensor (id | cmd | data)
+                if (this->rx_packet_sensor_ != nullptr)
+                {
+                    char id_hex[7 * 3 + 1];
+                    char data_hex[20 * 3 + 1];
+                    for (int i = 0; i < 7; i++)
+                        snprintf(id_hex + i * 3, 4, "%02X ", buffer[7 + i]);
+                    id_hex[7 * 3 - 1] = '\0'; // trim trailing space
+                    for (int i = 0; i < 20; i++)
+                        snprintf(data_hex + i * 3, 4, "%02X ", buffer[i]);
+                    data_hex[20 * 3 - 1] = '\0'; // trim trailing space
+                    char json[192];
+                    snprintf(json, sizeof(json),
+                             "{\"id\":\"%s\",\"cmd\":\"0x%02X,0x%02X\",\"data\":\"%s\"}",
+                             id_hex, buffer[14], buffer[15], data_hex);
+                    this->rx_packet_sensor_->publish_state(json);
+                }
+
                 // RSSI/LQI from APPEND_STATUS bytes
                 int8_t rssi_raw = (int8_t)buffer[20];
                 int rssi_dbm = (rssi_raw >= 128) ? (rssi_raw - 256) / 2 - 74 : rssi_raw / 2 - 74;

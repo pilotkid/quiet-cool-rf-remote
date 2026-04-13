@@ -3,6 +3,7 @@
 #include "esphome/components/fan/fan.h"
 #include "esphome/core/component.h"
 #include "esphome/components/spi/spi.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 #include "quietcool.h"
 #include <memory>
 
@@ -57,6 +58,7 @@ namespace esphome
             uint32_t rx_packet_count_{0};
             uint32_t overflow_count_{0};
             uint32_t gdo0_blocked_count_{0};
+            text_sensor::TextSensor *rx_packet_sensor_{nullptr};
 
         public:
             void set_remote_id(const std::vector<uint8_t> &remote_id)
@@ -64,6 +66,7 @@ namespace esphome
                 for (size_t i = 0; i < 7 && i < remote_id.size(); ++i)
                     remote_id_[i] = remote_id[i];
             }
+            void set_rx_packet_sensor(text_sensor::TextSensor *sensor) { rx_packet_sensor_ = sensor; }
             void reinit_radio();     // Manually re-initialize CC1101 for debugging
             void scan_frequencies(); // Scan through frequencies for pairing
             void send_wake();        // Send WAKE (0x66) to query fan state
