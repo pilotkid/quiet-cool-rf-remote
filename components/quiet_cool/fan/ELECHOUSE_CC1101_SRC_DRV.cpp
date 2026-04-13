@@ -17,6 +17,22 @@ cc1101 Driver for RC Switch. Mod by Little Satan. With permission to modify and 
 #include "ELECHOUSE_CC1101_SRC_DRV.h"
 #include <Arduino.h>
 
+// Avoid tight busy-wait loops which can trigger the ESP32 task watchdog.
+// Wait for a pin to reach a desired state, yielding between checks and
+// aborting after a timeout (milliseconds).
+#define CC1101_WAIT_TIMEOUT_MS 100
+static bool waitForPinState(byte pin, int desiredState, unsigned long timeout_ms)
+{
+  unsigned long start = millis();
+  while (digitalRead(pin) != desiredState)
+  {
+    if ((unsigned long)(millis() - start) >= timeout_ms)
+      return false;
+    delay(0); // yield to other tasks (esp_task_wdt friendly)
+  }
+  return true;
+}
+
 /****************************************************************/
 #define WRITE_BURST 0x40     // write burst
 #define READ_SINGLE 0x80     // read single
@@ -184,11 +200,9 @@ void ELECHOUSE_CC1101::Reset(void)
   digitalWrite(SS_PIN, HIGH);
   delay(1);
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(CC1101_SRES);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   digitalWrite(SS_PIN, HIGH);
 }
 /****************************************************************
@@ -218,8 +232,7 @@ void ELECHOUSE_CC1101::SpiWriteReg(byte addr, byte value)
 {
   SpiStart();
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(addr);
   SPI.transfer(value);
   digitalWrite(SS_PIN, HIGH);
@@ -237,8 +250,7 @@ void ELECHOUSE_CC1101::SpiWriteBurstReg(byte addr, byte *buffer, byte num)
   SpiStart();
   temp = addr | WRITE_BURST;
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(temp);
   for (i = 0; i < num; i++)
   {
@@ -257,8 +269,7 @@ void ELECHOUSE_CC1101::SpiStrobe(byte strobe)
 {
   SpiStart();
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(strobe);
   digitalWrite(SS_PIN, HIGH);
   SpiEnd();
@@ -275,8 +286,7 @@ byte ELECHOUSE_CC1101::SpiReadReg(byte addr)
   SpiStart();
   temp = addr | READ_SINGLE;
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(temp);
   value = SPI.transfer(0);
   digitalWrite(SS_PIN, HIGH);
@@ -296,8 +306,7 @@ void ELECHOUSE_CC1101::SpiReadBurstReg(byte addr, byte *buffer, byte num)
   SpiStart();
   temp = addr | READ_BURST;
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(temp);
   for (i = 0; i < num; i++)
   {
@@ -319,8 +328,7 @@ byte ELECHOUSE_CC1101::SpiReadStatus(byte addr)
   SpiStart();
   temp = addr | READ_BURST;
   digitalWrite(SS_PIN, LOW);
-  while (digitalRead(MISO_PIN))
-    ;
+  waitForPinState(MISO_PIN, LOW, CC1101_WAIT_TIMEOUT_MS);
   SPI.transfer(temp);
   value = SPI.transfer(0);
   digitalWrite(SS_PIN, HIGH);
@@ -1676,12 +1684,10 @@ void ELECHOUSE_CC1101::SendData(byte *txBuffer, byte size)
   SpiWriteReg(CC1101_TXFIFO, size);
   SpiWriteBurstReg(CC1101_TXFIFO, txBuffer, size); // write data to send
   SpiStrobe(CC1101_SIDLE);
-  SpiStrobe(CC1101_STX); // start send
-  while (!digitalRead(GDO0))
-    ; // Wait for GDO0 to be set -> sync transmitted
-  while (digitalRead(GDO0))
-    ;                     // Wait for GDO0 to be cleared -> end of packet
-  SpiStrobe(CC1101_SFTX); // flush TXfifo
+  SpiStrobe(CC1101_STX);                               // start send
+  waitForPinState(GDO0, HIGH, CC1101_WAIT_TIMEOUT_MS); // Wait for GDO0 to be set -> sync transmitted
+  waitForPinState(GDO0, LOW, CC1101_WAIT_TIMEOUT_MS);  // Wait for GDO0 to be cleared -> end of packet
+  SpiStrobe(CC1101_SFTX);                              // flush TXfifo
   trxstate = 1;
 }
 /****************************************************************
@@ -1773,8 +1779,7 @@ byte ELECHOUSE_CC1101::CheckReceiveFlag(void)
   }
   if (digitalRead(GDO0)) // receive data
   {
-    while (digitalRead(GDO0))
-      ;
+    waitForPinState(GDO0, LOW, CC1101_WAIT_TIMEOUT_MS);
     return 1;
   }
   else // no data
