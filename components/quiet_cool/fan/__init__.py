@@ -18,7 +18,7 @@ CONF_DEVIATION_KHZ = "deviation_khz"
 CONF_SPEED_COUNT = "speed_count"
 CONF_RX_PACKET_SENSOR = "rx_packet_sensor"
 
-DEPENDENCIES = ["spi"]
+DEPENDENCIES = ["spi", "text_sensor"]
 
 QuietCoolFan = quiet_cool_ns.class_("QuietCoolFan", cg.Component, fan.Fan, spi.SPIDevice)
 
