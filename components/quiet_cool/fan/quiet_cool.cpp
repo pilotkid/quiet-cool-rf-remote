@@ -29,7 +29,7 @@ namespace esphome
 
         fan::FanTraits QuietCoolFan::get_traits()
         {
-            return fan::FanTraits(false, true, false, 3);
+            return fan::FanTraits(false, true, false, this->speed_count);
         }
 
         void QuietCoolFan::control(const fan::FanCall &call)
@@ -54,6 +54,19 @@ namespace esphome
                 else if (this->speed_ < 2.5)
                     qcspd = QUIETCOOL_SPEED_MEDIUM;
                 else if (this->speed_ < 3.5)
+                    qcspd = QUIETCOOL_SPEED_HIGH;
+            }
+            else if (this->speed_count == 1)
+            {
+                // 1-speed mode: speed 1 = HIGH
+                qcspd = QUIETCOOL_SPEED_HIGH;
+            }
+            else if (this->speed_count == 2)
+            {
+                // 2-speed mode: speed 1 = LOW, speed 2 = HIGH
+                if (this->speed_ < 1.5)
+                    qcspd = QUIETCOOL_SPEED_LOW;
+                else
                     qcspd = QUIETCOOL_SPEED_HIGH;
             }
             else

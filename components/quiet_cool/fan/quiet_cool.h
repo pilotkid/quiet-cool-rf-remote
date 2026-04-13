@@ -32,6 +32,10 @@ namespace esphome
                 this->center_freq_mhz = center_freq_mhz;
                 this->deviation_khz = deviation_khz;
             }
+            void set_speed_count(int speeds)
+            {
+                this->speed_count = speeds;
+            }
 
         protected:
             void control(const fan::FanCall &call) override;
@@ -48,6 +52,7 @@ namespace esphome
             float speed_{0.0f};
             bool pins_set_{false};
             std::array<uint8_t, 7> remote_id_{{0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2}};
+            int speed_count{3}; // 1, 2, or 3 speeds supported
 
         public:
             void set_remote_id(const std::vector<uint8_t> &remote_id)

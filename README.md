@@ -69,6 +69,7 @@ fan:
 # optional variables
 #    center_freq_mhz: 433.897
 #    deviation_khz: 10
+#    speed_count: 1 #Supports value 1-3
 ```
 * click `INSTALL` and install it in the normal ESPHome ways...
 
